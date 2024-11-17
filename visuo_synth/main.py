@@ -1,4 +1,11 @@
-from visuo_synth import DataType, Column, Table, DatabaseSchema, LangChainDataGenerationStrategy, SyntheticDataGenerator
+from visuo_synth import (
+    DataType,
+    Column,
+    Table,
+    DatabaseSchema,
+    LangChainDataGenerationStrategy,
+    SyntheticDataGenerator,
+)
 from langchain_anthropic import ChatAnthropic
 
 if __name__ == "__main__":
@@ -9,8 +16,8 @@ if __name__ == "__main__":
             Column("id", DataType.INTEGER, nullable=False, primary_key=True),
             Column("name", DataType.STRING, nullable=False),
             Column("email", DataType.STRING),
-            Column("created_at", DataType.TIMESTAMP)
-        ]
+            Column("created_at", DataType.TIMESTAMP),
+        ],
     )
 
     order_table = Table(
@@ -19,8 +26,8 @@ if __name__ == "__main__":
             Column("id", DataType.INTEGER, nullable=False, primary_key=True),
             Column("customer_id", DataType.INTEGER, foreign_key=("customers", "id")),
             Column("amount", DataType.FLOAT),
-            Column("created_at", DataType.TIMESTAMP)
-        ]
+            Column("created_at", DataType.TIMESTAMP),
+        ],
     )
 
     try:
@@ -39,10 +46,7 @@ if __name__ == "__main__":
         generator = SyntheticDataGenerator(schema, strategy)
 
         # Set up volumes
-        volumes = {
-            "customers": 3,  # Must be generated first
-            "orders": 5
-        }
+        volumes = {"customers": 3, "orders": 5}  # Must be generated first
 
         # Generate data
         print("\nStarting data generation...")

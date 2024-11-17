@@ -3,18 +3,24 @@ from langchain_anthropic import ChatAnthropic
 from langchain.schema import HumanMessage
 import json
 from visuo_synth import (
-    DataType, Column, Table, DatabaseSchema,
-    LangChainDataGenerationStrategy, SyntheticDataGenerator
+    DataType,
+    Column,
+    Table,
+    DatabaseSchema,
+    LangChainDataGenerationStrategy,
+    SyntheticDataGenerator,
 )
+
 
 def initialize_session_state():
     """Initialize session state variables if they don't exist"""
-    if 'current_schema' not in st.session_state:
+    if "current_schema" not in st.session_state:
         st.session_state.current_schema = None
-    if 'tables' not in st.session_state:
+    if "tables" not in st.session_state:
         st.session_state.tables = []
-    if 'schema_json' not in st.session_state:
+    if "schema_json" not in st.session_state:
         st.session_state.schema_json = None
+
 
 def parse_ai_schema(schema_str):
     """Parse the AI-generated schema string into actual Table objects"""
@@ -24,14 +30,18 @@ def parse_ai_schema(schema_str):
 
         for table_name, table_def in schema_dict.items():
             columns = []
-            for col_def in table_def['columns']:
+            for col_def in table_def["columns"]:
                 column = Column(
-                    name=col_def['name'],
-                    data_type=DataType[col_def['data_type']],
-                    nullable=col_def.get('nullable', True),
-                    primary_key=col_def.get('primary_key', False),
-                    foreign_key=tuple(col_def['foreign_key']) if col_def.get('foreign_key') else None,
-                    unique=col_def.get('unique', False)
+                    name=col_def["name"],
+                    data_type=DataType[col_def["data_type"]],
+                    nullable=col_def.get("nullable", True),
+                    primary_key=col_def.get("primary_key", False),
+                    foreign_key=(
+                        tuple(col_def["foreign_key"])
+                        if col_def.get("foreign_key")
+                        else None
+                    ),
+                    unique=col_def.get("unique", False),
                 )
                 columns.append(column)
 
@@ -42,6 +52,7 @@ def parse_ai_schema(schema_str):
     except Exception as e:
         st.error(f"Error parsing schema: {str(e)}")
         return None
+
 
 def generate_schema_from_description(description):
     """Use AI to generate a schema based on the description"""
@@ -81,6 +92,7 @@ def generate_schema_from_description(description):
         st.error(f"Error generating schema: {str(e)}")
         return None
 
+
 def display_schema_editor():
     """Display and handle the schema editor interface"""
     if not st.session_state.tables:
@@ -95,7 +107,9 @@ def display_schema_editor():
     for table in st.session_state.tables:
         with st.expander(f"Table: {table.name}", expanded=True):
             # Table name editor
-            new_table_name = st.text_input(f"Table Name", table.name, key=f"table_name_{table.name}")
+            new_table_name = st.text_input(
+                f"Table Name", table.name, key=f"table_name_{table.name}"
+            )
             if new_table_name != table.name:
                 table.name = new_table_name
                 modified = True
@@ -111,10 +125,12 @@ def display_schema_editor():
             cols_to_remove = []
 
             for col in table.columns:
-                col1, col2, col3, col4, col5, col6 = st.columns([2,2,1,1,1,1])
+                col1, col2, col3, col4, col5, col6 = st.columns([2, 2, 1, 1, 1, 1])
 
                 with col1:
-                    new_name = st.text_input("Name", col.name, key=f"col_name_{table.name}_{col.name}")
+                    new_name = st.text_input(
+                        "Name", col.name, key=f"col_name_{table.name}_{col.name}"
+                    )
                     if new_name != col.name:
                         col.name = new_name
                         modified = True
@@ -124,26 +140,34 @@ def display_schema_editor():
                         "Type",
                         [dt.name for dt in DataType],
                         index=[dt.name for dt in DataType].index(col.data_type.name),
-                        key=f"col_type_{table.name}_{col.name}"
+                        key=f"col_type_{table.name}_{col.name}",
                     )
                     if DataType[new_type] != col.data_type:
                         col.data_type = DataType[new_type]
                         modified = True
 
                 with col3:
-                    new_nullable = st.checkbox("Nullable", col.nullable, key=f"col_null_{table.name}_{col.name}")
+                    new_nullable = st.checkbox(
+                        "Nullable",
+                        col.nullable,
+                        key=f"col_null_{table.name}_{col.name}",
+                    )
                     if new_nullable != col.nullable:
                         col.nullable = new_nullable
                         modified = True
 
                 with col4:
-                    new_pk = st.checkbox("PK", col.primary_key, key=f"col_pk_{table.name}_{col.name}")
+                    new_pk = st.checkbox(
+                        "PK", col.primary_key, key=f"col_pk_{table.name}_{col.name}"
+                    )
                     if new_pk != col.primary_key:
                         col.primary_key = new_pk
                         modified = True
 
                 with col5:
-                    new_unique = st.checkbox("Unique", col.unique, key=f"col_unique_{table.name}_{col.name}")
+                    new_unique = st.checkbox(
+                        "Unique", col.unique, key=f"col_unique_{table.name}_{col.name}"
+                    )
                     if new_unique != col.unique:
                         col.unique = new_unique
                         modified = True
@@ -182,6 +206,7 @@ def display_schema_editor():
         except Exception as e:
             st.error(f"Schema validation error: {str(e)}")
 
+
 def generate_synthetic_data():
     """Handle synthetic data generation"""
     if not st.session_state.current_schema:
@@ -197,7 +222,7 @@ def generate_synthetic_data():
             f"Number of rows for {table.name}",
             min_value=1,
             value=10,
-            key=f"volume_{table.name}"
+            key=f"volume_{table.name}",
         )
 
     if st.button("Generate Data"):
@@ -205,7 +230,9 @@ def generate_synthetic_data():
             with st.spinner("Generating synthetic data..."):
                 llm = ChatAnthropic(model_name="claude-3-5-haiku-20241022")
                 strategy = LangChainDataGenerationStrategy(llm)
-                generator = SyntheticDataGenerator(st.session_state.current_schema, strategy)
+                generator = SyntheticDataGenerator(
+                    st.session_state.current_schema, strategy
+                )
 
                 synthetic_data = generator.generate(volumes)
                 generator.export_to_csv("output_data")
@@ -221,6 +248,7 @@ def generate_synthetic_data():
         except Exception as e:
             st.error(f"Error generating data: {str(e)}")
 
+
 def main():
     st.title("Synthetic Data Generator")
 
@@ -233,8 +261,8 @@ def main():
         "Describe the entities and relationships you need:",
         height=150,
         placeholder="Example: I need a customer management system with customers and their orders. "
-                    "Each customer has a name, email, and registration date. "
-                    "Orders should track the amount and creation date."
+        "Each customer has a name, email, and registration date. "
+        "Orders should track the amount and creation date.",
     )
 
     # Step 2: Generate Schema
@@ -259,6 +287,7 @@ def main():
     # Step 4: Generate Data
     st.header("3. Generate Synthetic Data")
     generate_synthetic_data()
+
 
 if __name__ == "__main__":
     main()

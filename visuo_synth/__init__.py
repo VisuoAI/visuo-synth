@@ -1,18 +1,18 @@
-from typing import Dict, List, Any, Optional, Union
-from dataclasses import dataclass
-from enum import Enum
-import json
 import csv
-from datetime import datetime
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
 from pathlib import Path
+from typing import Dict, List, Any, Optional, Union
+
+from dotenv import load_dotenv
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 
-from dotenv import load_dotenv
-
 load_dotenv()
 # from langchain_openai import ChatOpenAI
+
 
 class DataType(Enum):
     INTEGER = "INTEGER"
@@ -21,6 +21,7 @@ class DataType(Enum):
     DATE = "DATE"
     TIMESTAMP = "TIMESTAMP"
     BOOLEAN = "BOOLEAN"
+
 
 @dataclass
 class Column:
@@ -31,10 +32,12 @@ class Column:
     foreign_key: Optional[tuple[str, str]] = None  # (table_name, column_name)
     unique: bool = False
 
+
 @dataclass
 class Table:
     name: str
     columns: List[Column]
+
 
 class DatabaseSchema:
     def __init__(self, tables: List[Table]):
@@ -50,10 +53,14 @@ class DatabaseSchema:
                 if column.foreign_key:
                     ref_table, ref_col = column.foreign_key
                     if ref_table not in self.tables:
-                        raise ValueError(f"Foreign key reference to non-existent table: {ref_table}")
+                        raise ValueError(
+                            f"Foreign key reference to non-existent table: {ref_table}"
+                        )
                     ref_columns = [col.name for col in self.tables[ref_table].columns]
                     if ref_col not in ref_columns:
-                        raise ValueError(f"Foreign key reference to non-existent column: {ref_col} in table {ref_table}")
+                        raise ValueError(
+                            f"Foreign key reference to non-existent column: {ref_col} in table {ref_table}"
+                        )
 
     def _build_dependency_graph(self):
         """Build a graph of table dependencies based on foreign keys."""
@@ -89,10 +96,12 @@ class DatabaseSchema:
         # Return the order directly (not reversed) since we're adding dependencies first
         return order
 
+
 class DataGenerationStrategy(ABC):
     @abstractmethod
     def generate_value(self, column: Column, context: Dict[str, Any]) -> Any:
         pass
+
 
 class LangChainDataGenerationStrategy(DataGenerationStrategy):
     def __init__(self, llm: BaseChatModel):
@@ -109,9 +118,7 @@ class LangChainDataGenerationStrategy(DataGenerationStrategy):
             return self.cache[cache_key]
 
         # Generate using LLM
-        response = self.llm.invoke(
-            [HumanMessage(content=prompt)]
-        )
+        response = self.llm.invoke([HumanMessage(content=prompt)])
 
         # Parse and validate response
         value = self._parse_response(response.content, column.data_type)
@@ -127,7 +134,7 @@ class LangChainDataGenerationStrategy(DataGenerationStrategy):
             DataType.STRING: "a text string",
             DataType.DATE: "a date in YYYY-MM-DD format",
             DataType.TIMESTAMP: "a timestamp in YYYY-MM-DD HH:MM:SS format",
-            DataType.BOOLEAN: "true or false"
+            DataType.BOOLEAN: "true or false",
         }
 
         data_type_examples = {
@@ -136,7 +143,7 @@ class LangChainDataGenerationStrategy(DataGenerationStrategy):
             DataType.STRING: "John Doe, contact@email.com, Product XYZ",
             DataType.DATE: "2024-01-15",
             DataType.TIMESTAMP: "2024-01-15 14:30:00",
-            DataType.BOOLEAN: "true"
+            DataType.BOOLEAN: "true",
         }
 
         prompt = f"""Generate exactly one {data_type_hints[column.data_type]} for a column named '{column.name}'.
@@ -154,9 +161,15 @@ The value should be in this format: {data_type_examples[column.data_type]}
             prompt += "\nGenerate a valid email address"
         elif "name" in column.name.lower() and column.data_type == DataType.STRING:
             prompt += "\nGenerate a realistic person or business name"
-        elif "amount" in column.name.lower() and column.data_type in [DataType.FLOAT, DataType.INTEGER]:
+        elif "amount" in column.name.lower() and column.data_type in [
+            DataType.FLOAT,
+            DataType.INTEGER,
+        ]:
             prompt += "\nGenerate a reasonable monetary amount"
-        elif "date" in column.name.lower() and column.data_type in [DataType.DATE, DataType.TIMESTAMP]:
+        elif "date" in column.name.lower() and column.data_type in [
+            DataType.DATE,
+            DataType.TIMESTAMP,
+        ]:
             prompt += "\nGenerate a date within the last 2 years"
 
         return prompt
@@ -201,7 +214,11 @@ The value should be in this format: {data_type_examples[column.data_type]}
 
             elif data_type == DataType.TIMESTAMP:
                 # Try multiple common timestamp formats
-                for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"]:
+                for fmt in [
+                    "%Y-%m-%d %H:%M:%S",
+                    "%Y-%m-%d %H:%M:%S.%f",
+                    "%Y-%m-%dT%H:%M:%S",
+                ]:
                     try:
                         return datetime.strptime(response, fmt)
                     except ValueError:
@@ -220,6 +237,7 @@ The value should be in this format: {data_type_examples[column.data_type]}
                 f"Failed to parse '{response}' as {data_type.value}: {str(e)}\n"
                 f"Please ensure the response matches the requested format."
             )
+
 
 class SyntheticDataGenerator:
     def __init__(self, schema: DatabaseSchema, strategy: DataGenerationStrategy):
@@ -267,7 +285,9 @@ class SyntheticDataGenerator:
                 # Validate the generated data
                 self._validate_generated_data(table_name, table_data)
 
-                print(f"✓ Successfully generated {len(table_data)} rows for {table_name}")
+                print(
+                    f"✓ Successfully generated {len(table_data)} rows for {table_name}"
+                )
 
             print("\nData generation completed successfully")
             return self.generated_data
@@ -276,15 +296,21 @@ class SyntheticDataGenerator:
             self.generated_data = {}  # Clean up on failure
             raise ValueError(f"Data generation failed: {str(e)}") from e
 
-    def _validate_generated_data(self, table_name: str, data: List[Dict[str, Any]]) -> None:
+    def _validate_generated_data(
+        self, table_name: str, data: List[Dict[str, Any]]
+    ) -> None:
         """Validate generated data for a table."""
         table = self.schema.tables[table_name]
 
         # Check all required columns are present
         for row in data:
-            missing_cols = set(col.name for col in table.columns if not col.nullable) - set(row.keys())
+            missing_cols = set(
+                col.name for col in table.columns if not col.nullable
+            ) - set(row.keys())
             if missing_cols:
-                raise ValueError(f"Missing required columns in {table_name}: {missing_cols}")
+                raise ValueError(
+                    f"Missing required columns in {table_name}: {missing_cols}"
+                )
 
         # Check foreign key constraints
         for column in table.columns:
@@ -298,13 +324,17 @@ class SyntheticDataGenerator:
                             f"Value {row[column.name]} not found in {ref_table}.{ref_col}"
                         )
 
-    def _generate_table_data(self, table_name: str, volume: int) -> List[Dict[str, Any]]:
+    def _generate_table_data(
+        self, table_name: str, volume: int
+    ) -> List[Dict[str, Any]]:
         """Generate data for a single table."""
         table = self.schema.tables[table_name]
         data = []
 
         # Track generated values for uniqueness constraints
-        unique_values = {col.name: set() for col in table.columns if col.primary_key or col.unique}
+        unique_values = {
+            col.name: set() for col in table.columns if col.primary_key or col.unique
+        }
 
         # Pre-validate and cache foreign key references
         foreign_key_values = {}
@@ -314,7 +344,9 @@ class SyntheticDataGenerator:
 
                 # Verify referenced table exists and has data
                 if ref_table not in self.generated_data:
-                    raise ValueError(f"Referenced table {ref_table} not found in generated data")
+                    raise ValueError(
+                        f"Referenced table {ref_table} not found in generated data"
+                    )
 
                 ref_data = self.generated_data.get(ref_table, [])
                 if not ref_data:
@@ -324,7 +356,9 @@ class SyntheticDataGenerator:
                     )
 
                 # Cache available foreign key values
-                ref_values = [row.get(ref_col) for row in ref_data if row.get(ref_col) is not None]
+                ref_values = [
+                    row.get(ref_col) for row in ref_data if row.get(ref_col) is not None
+                ]
                 if not ref_values:
                     raise ValueError(
                         f"No valid values found for foreign key reference "
@@ -345,13 +379,14 @@ class SyntheticDataGenerator:
                     "table_name": table_name,
                     "row_number": i + 1,
                     "total_rows": volume,
-                    "generated_values": {k: list(v) for k, v in unique_values.items()}
+                    "generated_values": {k: list(v) for k, v in unique_values.items()},
                 }
 
                 # Handle foreign keys first
                 for column in table.columns:
                     if column.foreign_key:
                         from random import choice
+
                         row[column.name] = choice(foreign_key_values[column.name])
                         context[f"ref_{column.name}"] = row[column.name]
 
@@ -367,10 +402,14 @@ class SyntheticDataGenerator:
 
                                 # Validate non-null constraint
                                 if not column.nullable and value is None:
-                                    raise ValueError(f"Generated NULL value for non-nullable column {column.name}")
+                                    raise ValueError(
+                                        f"Generated NULL value for non-nullable column {column.name}"
+                                    )
 
                                 # Check uniqueness constraint
-                                if (column.primary_key or column.unique) and value in unique_values[column.name]:
+                                if (
+                                    column.primary_key or column.unique
+                                ) and value in unique_values[column.name]:
                                     if attempt == max_attempts - 1:
                                         raise ValueError(
                                             f"Failed to generate unique value for {column.name} "
@@ -383,7 +422,9 @@ class SyntheticDataGenerator:
 
                             except Exception as e:
                                 if attempt == max_attempts - 1:
-                                    raise ValueError(f"Failed to generate value for {column.name}: {str(e)}")
+                                    raise ValueError(
+                                        f"Failed to generate value for {column.name}: {str(e)}"
+                                    )
 
                         # Store unique values
                         if column.primary_key or column.unique:
@@ -395,7 +436,9 @@ class SyntheticDataGenerator:
                 data.append(row)
 
             except Exception as e:
-                error_msg = f"Error generating row {i + 1} for table {table_name}: {str(e)}"
+                error_msg = (
+                    f"Error generating row {i + 1} for table {table_name}: {str(e)}"
+                )
                 print(error_msg)
                 raise ValueError(error_msg) from e
 
