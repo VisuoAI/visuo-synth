@@ -1,7 +1,10 @@
 import streamlit as st
 from langchain_anthropic import ChatAnthropic
+from langchain_openai import ChatOpenAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.schema import HumanMessage
 import json
+import os
 from visuo_synth import (
     DataType,
     Column,
@@ -20,6 +23,12 @@ def initialize_session_state():
         st.session_state.tables = []
     if "schema_json" not in st.session_state:
         st.session_state.schema_json = None
+    if "llm_config" not in st.session_state:
+        st.session_state.llm_config = {
+            "provider": "anthropic",
+            "model_name": "claude-3-5-haiku-20241022",
+            "temperature": 0.7
+        }
 
 
 def parse_ai_schema(schema_str):
@@ -54,9 +63,30 @@ def parse_ai_schema(schema_str):
         return None
 
 
+def get_llm():
+    """Get configured LLM based on session state"""
+    config = st.session_state.llm_config
+    if config["provider"] == "anthropic":
+        return ChatAnthropic(
+            model_name=config["model_name"],
+            temperature=config["temperature"]
+        )
+    elif config["provider"] == "openai":
+        return ChatOpenAI(
+            model_name=config["model_name"],
+            temperature=config["temperature"]
+        )
+    elif config["provider"] == "vertex":
+        return ChatGoogleGenerativeAI(
+            model_name=config["model_name"],
+            temperature=config["temperature"]
+        )
+    else:
+        raise ValueError(f"Unsupported LLM provider: {config['provider']}")
+
 def generate_schema_from_description(description):
     """Use AI to generate a schema based on the description"""
-    llm = ChatAnthropic(model_name="claude-3-5-haiku-20241022")
+    llm = get_llm()
 
     prompt = f"""Based on the following description, create a database schema in JSON format.
     Include appropriate data types, primary keys, foreign keys, and constraints.
@@ -228,7 +258,7 @@ def generate_synthetic_data():
     if st.button("Generate Data"):
         try:
             with st.spinner("Generating synthetic data..."):
-                llm = ChatAnthropic(model_name="claude-3-5-haiku-20241022")
+                llm = get_llm()
                 strategy = LangChainDataGenerationStrategy(llm)
                 generator = SyntheticDataGenerator(
                     st.session_state.current_schema, strategy
@@ -249,11 +279,45 @@ def generate_synthetic_data():
             st.error(f"Error generating data: {str(e)}")
 
 
+def configure_llm():
+    """Configure LLM settings in sidebar"""
+    with st.sidebar:
+        st.header("Model Configuration")
+        
+        provider = st.selectbox(
+            "Provider",
+            ["anthropic", "openai", "vertex"],
+            index=["anthropic", "openai", "vertex"].index(st.session_state.llm_config["provider"])
+        )
+        
+        if provider == "anthropic":
+            models = ["claude-3-5-haiku-20241022", "claude-3-opus-20240229"]
+        elif provider == "openai":
+            models = ["gpt-4", "gpt-3.5-turbo"]
+        else:  # google genai
+            models = [""]
+            
+        model_name = st.selectbox("Model", models)
+        temperature = st.slider("Temperature", 0.0, 1.0, st.session_state.llm_config["temperature"])
+        
+        # Update config if changed
+        new_config = {
+            "provider": provider,
+            "model_name": model_name,
+            "temperature": temperature
+        }
+        
+        if new_config != st.session_state.llm_config:
+            st.session_state.llm_config = new_config
+
 def main():
     st.title("Synthetic Data Generator")
 
     # Initialize session state
     initialize_session_state()
+    
+    # Configure LLM
+    configure_llm()
 
     # Step 1: Description input
     st.header("1. Describe Your Data Model")
