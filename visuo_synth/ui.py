@@ -1,5 +1,6 @@
 import streamlit as st
 from langchain_anthropic import ChatAnthropic
+from langchain_core.output_parsers import JsonOutputParser
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.schema import HumanMessage
@@ -14,6 +15,8 @@ from visuo_synth import (
     SyntheticDataGenerator,
 )
 
+json_parser = JsonOutputParser()
+
 
 def initialize_session_state():
     """Initialize session state variables if they don't exist"""
@@ -27,14 +30,13 @@ def initialize_session_state():
         st.session_state.llm_config = {
             "provider": "anthropic",
             "model_name": "claude-3-5-haiku-20241022",
-            "temperature": 0.7
+            "temperature": 0.7,
         }
 
 
-def parse_ai_schema(schema_str):
+def parse_ai_schema(schema_dict):
     """Parse the AI-generated schema string into actual Table objects"""
     try:
-        schema_dict = json.loads(schema_str)
         tables = []
 
         for table_name, table_def in schema_dict.items():
@@ -69,20 +71,20 @@ def get_llm():
     if config["provider"] == "anthropic":
         return ChatAnthropic(
             model_name=config["model_name"],
-            temperature=config["temperature"]
+            temperature=config["temperature"],
+            max_tokens=2000,
         )
     elif config["provider"] == "openai":
         return ChatOpenAI(
-            model_name=config["model_name"],
-            temperature=config["temperature"]
+            model_name=config["model_name"], temperature=config["temperature"]
         )
     elif config["provider"] == "vertex":
         return ChatGoogleGenerativeAI(
-            model_name=config["model_name"],
-            temperature=config["temperature"]
+            model_name=config["model_name"], temperature=config["temperature"]
         )
     else:
         raise ValueError(f"Unsupported LLM provider: {config['provider']}")
+
 
 def generate_schema_from_description(description):
     """Use AI to generate a schema based on the description"""
@@ -116,8 +118,7 @@ def generate_schema_from_description(description):
         # Extract JSON from response
         schema_str = response.content
         # Parse to validate JSON
-        json.loads(schema_str)
-        return schema_str
+        return json_parser.parse(schema_str)
     except Exception as e:
         st.error(f"Error generating schema: {str(e)}")
         return None
@@ -283,39 +284,44 @@ def configure_llm():
     """Configure LLM settings in sidebar"""
     with st.sidebar:
         st.header("Model Configuration")
-        
+
         provider = st.selectbox(
             "Provider",
             ["anthropic", "openai", "vertex"],
-            index=["anthropic", "openai", "vertex"].index(st.session_state.llm_config["provider"])
+            index=["anthropic", "openai", "vertex"].index(
+                st.session_state.llm_config["provider"]
+            ),
         )
-        
+
         if provider == "anthropic":
             models = ["claude-3-5-haiku-20241022", "claude-3-opus-20240229"]
         elif provider == "openai":
             models = ["gpt-4", "gpt-3.5-turbo"]
         else:  # google genai
             models = [""]
-            
+
         model_name = st.selectbox("Model", models)
-        temperature = st.slider("Temperature", 0.0, 1.0, st.session_state.llm_config["temperature"])
-        
+        temperature = st.slider(
+            "Temperature", 0.0, 1.0, st.session_state.llm_config["temperature"]
+        )
+
         # Update config if changed
         new_config = {
             "provider": provider,
             "model_name": model_name,
-            "temperature": temperature
+            "temperature": temperature,
         }
-        
+
         if new_config != st.session_state.llm_config:
             st.session_state.llm_config = new_config
+
 
 def main():
     st.title("Synthetic Data Generator")
 
     # Initialize session state
     initialize_session_state()
-    
+
     # Configure LLM
     configure_llm()
 
@@ -332,10 +338,10 @@ def main():
     # Step 2: Generate Schema
     if description and st.button("Generate Schema"):
         with st.spinner("Generating schema from description..."):
-            schema_str = generate_schema_from_description(description)
-            if schema_str:
-                st.session_state.schema_json = schema_str
-                tables = parse_ai_schema(schema_str)
+            schema_json = generate_schema_from_description(description)
+            if schema_json:
+                st.session_state.schema_json = schema_json
+                tables = parse_ai_schema(schema_json)
                 if tables:
                     st.session_state.tables = tables
                     try:

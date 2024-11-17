@@ -107,16 +107,16 @@ class LangChainDataGenerationStrategy(DataGenerationStrategy):
     def __init__(self, llm: BaseChatModel):
         if not isinstance(llm, BaseChatModel):
             raise ValueError("llm must be an instance of BaseChatModel")
-        if not hasattr(llm, 'invoke') or not callable(getattr(llm, 'invoke')):
+        if not hasattr(llm, "invoke") or not callable(getattr(llm, "invoke")):
             raise ValueError("llm must implement the invoke method")
-            
+
         self.llm = llm
         self.cache = {}  # Cache for similar requests
-        
+
         # Verify model can generate responses by testing
         try:
             test_response = self.llm.invoke([HumanMessage(content="Test")])
-            if not test_response or not hasattr(test_response, 'content'):
+            if not test_response or not hasattr(test_response, "content"):
                 raise ValueError("Model failed to generate valid response")
         except Exception as e:
             raise ValueError(f"Failed to initialize model: {str(e)}")
