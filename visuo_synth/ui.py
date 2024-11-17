@@ -1,11 +1,11 @@
+import logging
+
 import streamlit as st
 from langchain_anthropic import ChatAnthropic
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_openai import ChatOpenAI
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.schema import HumanMessage
-import json
-import os
 from visuo_synth import (
     DataType,
     Column,
@@ -28,9 +28,9 @@ def initialize_session_state():
         st.session_state.schema_json = None
     if "llm_config" not in st.session_state:
         st.session_state.llm_config = {
-            "provider": "anthropic",
-            "model_name": "claude-3-5-haiku-20241022",
-            "temperature": 0.7,
+            "provider": "google-genai",
+            "model_name": "gemini-1.5-flash",
+            "temperature": 1.0,
         }
 
 
@@ -69,18 +69,21 @@ def get_llm():
     """Get configured LLM based on session state"""
     config = st.session_state.llm_config
     if config["provider"] == "anthropic":
+        logging.info("Using Anthropic model")
         return ChatAnthropic(
-            model_name=config["model_name"],
+            model=config["model_name"],
             temperature=config["temperature"],
             max_tokens=2000,
         )
     elif config["provider"] == "openai":
+        logging.info("Using OpenAI model")
         return ChatOpenAI(
-            model_name=config["model_name"], temperature=config["temperature"]
+            model=config["model_name"], temperature=config["temperature"]
         )
-    elif config["provider"] == "vertex":
+    elif config["provider"] == "google-genai":
+        logging.info("Using Google GenAI model")
         return ChatGoogleGenerativeAI(
-            model_name=config["model_name"], temperature=config["temperature"]
+            model=config["model_name"], temperature=config["temperature"]
         )
     else:
         raise ValueError(f"Unsupported LLM provider: {config['provider']}")
@@ -287,8 +290,8 @@ def configure_llm():
 
         provider = st.selectbox(
             "Provider",
-            ["anthropic", "openai", "vertex"],
-            index=["anthropic", "openai", "vertex"].index(
+            ["anthropic", "openai", "google-genai"],
+            index=["anthropic", "openai", "google-genai"].index(
                 st.session_state.llm_config["provider"]
             ),
         )
@@ -296,9 +299,9 @@ def configure_llm():
         if provider == "anthropic":
             models = ["claude-3-5-haiku-20241022", "claude-3-opus-20240229"]
         elif provider == "openai":
-            models = ["gpt-4", "gpt-3.5-turbo"]
+            models = ["gpt-4o", "gpt-3.5-turbo"]
         else:  # google genai
-            models = [""]
+            models = ["gemini-1.5-pro-002", "gemini-1.5-flash"]
 
         model_name = st.selectbox("Model", models)
         temperature = st.slider(
