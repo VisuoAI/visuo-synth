@@ -1,11 +1,8 @@
-# visuo-synth
+# Visuo Synth : Use LLMs to generate Structured+Unstructured synthetic data
 
-![til](./visuo-synth.gif)
+<img src="./visuo-synth.gif" width="800" height="auto" alt="Visuo Synth Demo">
 
-
-Use LLMs to generate structured+unstructured synthetic data.
-
-Had a Streamlit-based user interface for generating synthetic data using natural language descriptions. This UI layer sits on top of the core synthetic data generation system and makes it accessible through an intuitive web interface.
+Has a Streamlit-based user interface for generating synthetic data using natural language descriptions. This UI layer sits on top of the core synthetic data generation system and makes it accessible through an intuitive web interface.
 
 ## Features
 
