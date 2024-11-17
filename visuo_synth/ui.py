@@ -30,7 +30,7 @@ def initialize_session_state():
         st.session_state.llm_config = {
             "provider": "google-genai",
             "model_name": "gemini-1.5-flash",
-            "temperature": 1.0,
+            "temperature": 0.7,
         }
 
 
