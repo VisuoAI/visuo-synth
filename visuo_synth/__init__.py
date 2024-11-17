@@ -87,7 +87,8 @@ class DatabaseSchema:
             if table not in visited:
                 visit(table)
 
-        return order[::-1]
+        # Return the order directly (not reversed) since we're adding dependencies first
+        return order
 
 class DataGenerationStrategy(ABC):
     @abstractmethod
@@ -161,65 +162,65 @@ The value should be in this format: {data_type_examples[column.data_type]}
 
         return prompt
 
-def _parse_response(self, response: str, data_type: DataType) -> Any:
-    """Parse and validate LLM response based on data type."""
-    if not response or not isinstance(response, str):
-        raise ValueError("Invalid or empty response from LLM")
+    def _parse_response(self, response: str, data_type: DataType) -> Any:
+        """Parse and validate LLM response based on data type."""
+        if not response or not isinstance(response, str):
+            raise ValueError("Invalid or empty response from LLM")
 
-    # Remove leading/trailing whitespace
-    response = response.strip()
+        # Remove leading/trailing whitespace
+        response = response.strip()
 
-    try:
-        if data_type == DataType.INTEGER:
-            # Handle cases where LLM returns formatted numbers like "1,000" or "$1000"
-            cleaned = response.replace(",", "").replace("$", "").strip()
-            value = int(float(cleaned))  # handle cases where LLM returns float
-            return value
+        try:
+            if data_type == DataType.INTEGER:
+                # Handle cases where LLM returns formatted numbers like "1,000" or "$1000"
+                cleaned = response.replace(",", "").replace("$", "").strip()
+                value = int(float(cleaned))  # handle cases where LLM returns float
+                return value
 
-        elif data_type == DataType.FLOAT:
-            # Handle cases where LLM returns formatted numbers like "1,000.50" or "$1000.50"
-            cleaned = response.replace(",", "").replace("$", "").strip()
-            return float(cleaned)
+            elif data_type == DataType.FLOAT:
+                # Handle cases where LLM returns formatted numbers like "1,000.50" or "$1000.50"
+                cleaned = response.replace(",", "").replace("$", "").strip()
+                return float(cleaned)
 
-        elif data_type == DataType.BOOLEAN:
-            lower_resp = response.lower()
-            if lower_resp in ["true", "1", "yes", "y"]:
-                return True
-            elif lower_resp in ["false", "0", "no", "n"]:
-                return False
-            else:
-                raise ValueError(f"Invalid boolean value: {response}")
+            elif data_type == DataType.BOOLEAN:
+                lower_resp = response.lower()
+                if lower_resp in ["true", "1", "yes", "y"]:
+                    return True
+                elif lower_resp in ["false", "0", "no", "n"]:
+                    return False
+                else:
+                    raise ValueError(f"Invalid boolean value: {response}")
 
-        elif data_type == DataType.DATE:
-            # Try multiple common date formats
-            for fmt in ["%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%d/%m/%Y"]:
-                try:
-                    return datetime.strptime(response, fmt).date()
-                except ValueError:
-                    continue
-            raise ValueError(f"Unrecognized date format: {response}")
+            elif data_type == DataType.DATE:
+                # Try multiple common date formats
+                for fmt in ["%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%d/%m/%Y"]:
+                    try:
+                        return datetime.strptime(response, fmt).date()
+                    except ValueError:
+                        continue
+                raise ValueError(f"Unrecognized date format: {response}")
 
-        elif data_type == DataType.TIMESTAMP:
-            # Try multiple common timestamp formats
-            for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"]:
-                try:
-                    return datetime.strptime(response, fmt)
-                except ValueError:
-                    continue
-            raise ValueError(f"Unrecognized timestamp format: {response}")
+            elif data_type == DataType.TIMESTAMP:
+                # Try multiple common timestamp formats
+                for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"]:
+                    try:
+                        return datetime.strptime(response, fmt)
+                    except ValueError:
+                        continue
+                raise ValueError(f"Unrecognized timestamp format: {response}")
 
-        else:  # STRING
-            # Basic string validation and cleaning
-            cleaned = response.strip()
-            if not cleaned:
-                raise ValueError("Empty string after cleaning")
-            return cleaned
+            else:  # STRING
+                # Basic string validation and cleaning
+                cleaned = response.strip()
+                if not cleaned:
+                    raise ValueError("Empty string after cleaning")
+                return cleaned
 
-    except Exception as e:
-        raise ValueError(
-            f"Failed to parse '{response}' as {data_type.value}: {str(e)}\n"
-            f"Please ensure the response matches the requested format."
-        )
+        except Exception as e:
+            raise ValueError(
+                f"Failed to parse '{response}' as {data_type.value}: {str(e)}\n"
+                f"Please ensure the response matches the requested format."
+            )
 
 class SyntheticDataGenerator:
     def __init__(self, schema: DatabaseSchema, strategy: DataGenerationStrategy):
