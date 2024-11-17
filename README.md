@@ -30,7 +30,20 @@ poetry install
 poetry run streamlit run visuo_synth/ui.py
 ```
 
-Make sure your `.env` file contains your Anthropic API key:
+Make sure your `.env` file contains your Google GenAI
+
+```
+GOOGLE_API_KEY=<your api key> 
+``` 
+
+, OpenAI or 
+ 
+```
+OPENAI_API_KEY=<your api key> 
+```
+
+Anthropic API key:
+
 ```
 ANTHROPIC_API_KEY=your_api_key_here
 ```
