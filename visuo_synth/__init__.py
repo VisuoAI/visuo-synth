@@ -121,32 +121,105 @@ class LangChainDataGenerationStrategy(DataGenerationStrategy):
         return value
 
     def _create_prompt(self, column: Column, context: Dict[str, Any]) -> str:
-        prompt = f"""Generate a realistic value for a {column.data_type.value} column named '{column.name}'
-        Respond with ONLY the value, no explanation or additional text.
-        """
-        if context.get('table_name'):
-            prompt += f"\nThe column is in table '{context['table_name']}'"
-        if column.foreign_key:
-            prompt += f"\nThis should reference {column.foreign_key[0]}.{column.foreign_key[1]}"
+        data_type_hints = {
+            DataType.INTEGER: "a whole number",
+            DataType.FLOAT: "a decimal number",
+            DataType.STRING: "a text string",
+            DataType.DATE: "a date in YYYY-MM-DD format",
+            DataType.TIMESTAMP: "a timestamp in YYYY-MM-DD HH:MM:SS format",
+            DataType.BOOLEAN: "true or false"
+        }
+
+        data_type_examples = {
+            DataType.INTEGER: "42, 1337, 999",
+            DataType.FLOAT: "42.5, 100.25, 999.99",
+            DataType.STRING: "John Doe, contact@email.com, Product XYZ",
+            DataType.DATE: "2024-01-15",
+            DataType.TIMESTAMP: "2024-01-15 14:30:00",
+            DataType.BOOLEAN: "true"
+        }
+
+        prompt = f"""Generate exactly one {data_type_hints[column.data_type]} for a column named '{column.name}'.
+Respond with ONLY the value, no explanation or additional text.
+The value should be in this format: {data_type_examples[column.data_type]}
+"""
+        if column.primary_key:
+            prompt += f"\nThis is a PRIMARY KEY - it must be unique. Current values: {context.get('generated_values', {}).get(column.name, [])}"
+
+        if context.get("table_name"):
+            prompt += f"\nTable: {context['table_name']}"
+
+        # Add more specific guidance based on the column name and context
+        if "email" in column.name.lower() and column.data_type == DataType.STRING:
+            prompt += "\nGenerate a valid email address"
+        elif "name" in column.name.lower() and column.data_type == DataType.STRING:
+            prompt += "\nGenerate a realistic person or business name"
+        elif "amount" in column.name.lower() and column.data_type in [DataType.FLOAT, DataType.INTEGER]:
+            prompt += "\nGenerate a reasonable monetary amount"
+        elif "date" in column.name.lower() and column.data_type in [DataType.DATE, DataType.TIMESTAMP]:
+            prompt += "\nGenerate a date within the last 2 years"
+
         return prompt
 
-    def _parse_response(self, response: str, data_type: DataType) -> Any:
-        # Convert LLM response to appropriate Python type
-        try:
-            if data_type == DataType.INTEGER:
-                return int(response.strip())
-            elif data_type == DataType.FLOAT:
-                return float(response.strip())
-            elif data_type == DataType.BOOLEAN:
-                return response.strip().lower() == 'true'
-            elif data_type == DataType.DATE:
-                return datetime.strptime(response.strip(), '%Y-%m-%d').date()
-            elif data_type == DataType.TIMESTAMP:
-                return datetime.strptime(response.strip(), '%Y-%m-%d %H:%M:%S')
-            else:  # STRING
-                return response.strip()
-        except (ValueError, TypeError) as e:
-            raise ValueError(f"Failed to parse LLM response '{response}' as {data_type.value}: {str(e)}")
+def _parse_response(self, response: str, data_type: DataType) -> Any:
+    """Parse and validate LLM response based on data type."""
+    if not response or not isinstance(response, str):
+        raise ValueError("Invalid or empty response from LLM")
+
+    # Remove leading/trailing whitespace
+    response = response.strip()
+
+    try:
+        if data_type == DataType.INTEGER:
+            # Handle cases where LLM returns formatted numbers like "1,000" or "$1000"
+            cleaned = response.replace(",", "").replace("$", "").strip()
+            value = int(float(cleaned))  # handle cases where LLM returns float
+            return value
+
+        elif data_type == DataType.FLOAT:
+            # Handle cases where LLM returns formatted numbers like "1,000.50" or "$1000.50"
+            cleaned = response.replace(",", "").replace("$", "").strip()
+            return float(cleaned)
+
+        elif data_type == DataType.BOOLEAN:
+            lower_resp = response.lower()
+            if lower_resp in ["true", "1", "yes", "y"]:
+                return True
+            elif lower_resp in ["false", "0", "no", "n"]:
+                return False
+            else:
+                raise ValueError(f"Invalid boolean value: {response}")
+
+        elif data_type == DataType.DATE:
+            # Try multiple common date formats
+            for fmt in ["%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%d/%m/%Y"]:
+                try:
+                    return datetime.strptime(response, fmt).date()
+                except ValueError:
+                    continue
+            raise ValueError(f"Unrecognized date format: {response}")
+
+        elif data_type == DataType.TIMESTAMP:
+            # Try multiple common timestamp formats
+            for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M:%S.%f", "%Y-%m-%dT%H:%M:%S"]:
+                try:
+                    return datetime.strptime(response, fmt)
+                except ValueError:
+                    continue
+            raise ValueError(f"Unrecognized timestamp format: {response}")
+
+        else:  # STRING
+            # Basic string validation and cleaning
+            cleaned = response.strip()
+            if not cleaned:
+                raise ValueError("Empty string after cleaning")
+            return cleaned
+
+    except Exception as e:
+        raise ValueError(
+            f"Failed to parse '{response}' as {data_type.value}: {str(e)}\n"
+            f"Please ensure the response matches the requested format."
+        )
 
 class SyntheticDataGenerator:
     def __init__(self, schema: DatabaseSchema, strategy: DataGenerationStrategy):
@@ -156,67 +229,175 @@ class SyntheticDataGenerator:
 
     def generate(self, volumes: Dict[str, int]) -> Dict[str, List[Dict[str, Any]]]:
         """Generate synthetic data for all tables in the schema."""
+        # Reset generated data
         self.generated_data = {}
+
+        # Get generation order based on dependencies
         generation_order = self.schema.get_generation_order()
+        print(f"Table generation order: {generation_order}")
 
         # Validate requested volumes
-        for table in generation_order:
-            if table not in volumes:
-                raise ValueError(f"Volume not specified for table: {table}")
+        missing_tables = set(self.schema.tables.keys()) - set(volumes.keys())
+        if missing_tables:
+            raise ValueError(f"Volume not specified for tables: {missing_tables}")
 
-        # Generate data in correct order
-        for table_name in generation_order:
-            self.generated_data[table_name] = self._generate_table_data(
-                table_name,
-                volumes[table_name]
-            )
+        invalid_volumes = {table: vol for table, vol in volumes.items() if vol <= 0}
+        if invalid_volumes:
+            raise ValueError(f"Volume must be positive for tables: {invalid_volumes}")
 
-        return self.generated_data
+        try:
+            # Initialize empty storage for all tables
+            for table_name in self.schema.tables:
+                self.generated_data[table_name] = []
+
+            # Generate data in correct order
+            for table_name in generation_order:
+                print(f"\nGenerating data for table: {table_name}")
+                volume = volumes[table_name]
+
+                # Generate data for current table
+                table_data = self._generate_table_data(table_name, volume)
+
+                if not table_data:
+                    raise ValueError(f"No data was generated for table {table_name}")
+
+                # Store generated data
+                self.generated_data[table_name] = table_data
+
+                # Validate the generated data
+                self._validate_generated_data(table_name, table_data)
+
+                print(f"✓ Successfully generated {len(table_data)} rows for {table_name}")
+
+            print("\nData generation completed successfully")
+            return self.generated_data
+
+        except Exception as e:
+            self.generated_data = {}  # Clean up on failure
+            raise ValueError(f"Data generation failed: {str(e)}") from e
+
+    def _validate_generated_data(self, table_name: str, data: List[Dict[str, Any]]) -> None:
+        """Validate generated data for a table."""
+        table = self.schema.tables[table_name]
+
+        # Check all required columns are present
+        for row in data:
+            missing_cols = set(col.name for col in table.columns if not col.nullable) - set(row.keys())
+            if missing_cols:
+                raise ValueError(f"Missing required columns in {table_name}: {missing_cols}")
+
+        # Check foreign key constraints
+        for column in table.columns:
+            if column.foreign_key:
+                ref_table, ref_col = column.foreign_key
+                ref_values = {row[ref_col] for row in self.generated_data[ref_table]}
+                for row in data:
+                    if row[column.name] not in ref_values:
+                        raise ValueError(
+                            f"Foreign key constraint violation in {table_name}.{column.name}: "
+                            f"Value {row[column.name]} not found in {ref_table}.{ref_col}"
+                        )
 
     def _generate_table_data(self, table_name: str, volume: int) -> List[Dict[str, Any]]:
         """Generate data for a single table."""
         table = self.schema.tables[table_name]
         data = []
 
-        # Track generated primary keys to ensure uniqueness
-        primary_keys = set()
+        # Track generated values for uniqueness constraints
+        unique_values = {col.name: set() for col in table.columns if col.primary_key or col.unique}
 
-        for _ in range(volume):
-            row = {}
-            context = {"table_name": table_name}
+        # Pre-validate and cache foreign key references
+        foreign_key_values = {}
+        for column in table.columns:
+            if column.foreign_key:
+                ref_table, ref_col = column.foreign_key
 
-            # First, handle foreign keys to ensure referential integrity
-            for column in table.columns:
-                if column.foreign_key:
-                    ref_table, ref_col = column.foreign_key
-                    if ref_table not in self.generated_data:
-                        raise ValueError(f"Referenced table {ref_table} not yet generated")
-                    # Randomly select a value from previously generated data
-                    from random import choice
-                    ref_data = self.generated_data[ref_table]
-                    if not ref_data:
-                        raise ValueError(f"No data in referenced table {ref_table}")
-                    row[column.name] = choice(ref_data)[ref_col]
-                    context[column.name] = row[column.name]
+                # Verify referenced table exists and has data
+                if ref_table not in self.generated_data:
+                    raise ValueError(f"Referenced table {ref_table} not found in generated data")
 
-            # Then generate remaining columns
-            for column in table.columns:
-                if column.name not in row:  # Skip if already handled (foreign keys)
-                    value = self.strategy.generate_value(column, context)
+                ref_data = self.generated_data.get(ref_table, [])
+                if not ref_data:
+                    raise ValueError(
+                        f"No data available in referenced table {ref_table}. "
+                        f"Ensure {ref_table} is generated before {table_name}"
+                    )
 
-                    # Ensure primary key uniqueness
-                    if column.primary_key:
-                        attempts = 0
-                        while value in primary_keys and attempts < 100:
-                            value = self.strategy.generate_value(column, context)
-                            attempts += 1
-                        if value in primary_keys:
-                            raise ValueError(f"Failed to generate unique primary key for {table_name}.{column.name}")
-                        primary_keys.add(value)
+                # Cache available foreign key values
+                ref_values = [row.get(ref_col) for row in ref_data if row.get(ref_col) is not None]
+                if not ref_values:
+                    raise ValueError(
+                        f"No valid values found for foreign key reference "
+                        f"{ref_table}.{ref_col} in table {table_name}"
+                    )
 
-                    row[column.name] = value
+                foreign_key_values[column.name] = ref_values
 
-            data.append(row)
+        print(f"\nGenerating {volume} rows for table {table_name}")
+
+        for i in range(volume):
+            if (i + 1) % 10 == 0:
+                print(f"Progress: {i + 1}/{volume} rows")
+
+            try:
+                row = {}
+                context = {
+                    "table_name": table_name,
+                    "row_number": i + 1,
+                    "total_rows": volume,
+                    "generated_values": {k: list(v) for k, v in unique_values.items()}
+                }
+
+                # Handle foreign keys first
+                for column in table.columns:
+                    if column.foreign_key:
+                        from random import choice
+                        row[column.name] = choice(foreign_key_values[column.name])
+                        context[f"ref_{column.name}"] = row[column.name]
+
+                # Generate remaining columns
+                for column in table.columns:
+                    if column.name not in row:  # Skip if already handled
+                        value = None
+                        max_attempts = 100 if column.primary_key or column.unique else 1
+
+                        for attempt in range(max_attempts):
+                            try:
+                                value = self.strategy.generate_value(column, context)
+
+                                # Validate non-null constraint
+                                if not column.nullable and value is None:
+                                    raise ValueError(f"Generated NULL value for non-nullable column {column.name}")
+
+                                # Check uniqueness constraint
+                                if (column.primary_key or column.unique) and value in unique_values[column.name]:
+                                    if attempt == max_attempts - 1:
+                                        raise ValueError(
+                                            f"Failed to generate unique value for {column.name} "
+                                            f"after {max_attempts} attempts"
+                                        )
+                                    continue  # Try again
+
+                                # Valid value found
+                                break
+
+                            except Exception as e:
+                                if attempt == max_attempts - 1:
+                                    raise ValueError(f"Failed to generate value for {column.name}: {str(e)}")
+
+                        # Store unique values
+                        if column.primary_key or column.unique:
+                            unique_values[column.name].add(value)
+
+                        row[column.name] = value
+                        context[column.name] = value
+
+                data.append(row)
+
+            except Exception as e:
+                error_msg = f"Error generating row {i + 1} for table {table_name}: {str(e)}"
+                print(error_msg)
+                raise ValueError(error_msg) from e
 
         return data
 
@@ -230,19 +411,18 @@ class SyntheticDataGenerator:
                 continue
 
             file_path = output_dir / f"{table_name}.csv"
-            with open(file_path, 'w', newline='') as f:
+            with open(file_path, "w", newline="") as f:
                 writer = csv.DictWriter(f, fieldnames=data[0].keys())
                 writer.writeheader()
                 writer.writerows(data)
 
-# Example usage:
 if __name__ == "__main__":
-    # Example schema definition
+    # Schema definition
     customer_table = Table(
         name="customers",
         columns=[
             Column("id", DataType.INTEGER, nullable=False, primary_key=True),
-            Column("name", DataType.STRING),
+            Column("name", DataType.STRING, nullable=False),
             Column("email", DataType.STRING),
             Column("created_at", DataType.TIMESTAMP)
         ]
@@ -258,29 +438,42 @@ if __name__ == "__main__":
         ]
     )
 
-    schema = DatabaseSchema([customer_table, order_table])
+    try:
+        # Initialize schema first
+        print("Initializing schema...")
+        schema = DatabaseSchema([customer_table, order_table])
 
-    # Initialize generator with LangChain Chat Model
-    # You can use any LangChain chat model:
-    # llm = ChatOpenAI(api_key="your-api-key")
-    llm = ChatAnthropic(model_name="claude-3-5-haiku-20241022")
+        # Verify generation order
+        gen_order = schema.get_generation_order()
+        print(f"Generation order: {gen_order}")
 
-    strategy = LangChainDataGenerationStrategy(llm)
-    generator = SyntheticDataGenerator(schema, strategy)
+        # Initialize generator
+        print("Initializing data generator...")
+        llm = ChatAnthropic(model_name="claude-3-5-haiku-20241022")
+        strategy = LangChainDataGenerationStrategy(llm)
+        generator = SyntheticDataGenerator(schema, strategy)
 
-    # Generate data
-    volumes = {
-        "customers": 100,
-        "orders": 250
-    }
+        # Set up volumes
+        volumes = {
+            "customers": 3,  # Must be generated first
+            "orders": 5
+        }
 
-    synthetic_data = generator.generate(volumes)
+        # Generate data
+        print("\nStarting data generation...")
+        synthetic_data = generator.generate(volumes)
 
-    # Export to CSV
-    generator.export_to_csv("output_data")
+        # Export to CSV
+        print("\nExporting to CSV...")
+        generator.export_to_csv("output_data")
 
-    # Print sample of generated data
-    for table_name, data in synthetic_data.items():
-        print(f"\n{table_name} sample (first 3 rows):")
-        for row in data[:3]:
-            print(row)
+        # Print samples
+        print("\nGenerated Data Samples:")
+        for table_name, data in synthetic_data.items():
+            print(f"\n{table_name} ({len(data)} rows):")
+            for i, row in enumerate(data):
+                if i < 2:  # Show first 2 rows
+                    print(row)
+
+    except Exception as e:
+        print(f"Error: {str(e)}")
