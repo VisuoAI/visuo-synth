@@ -77,9 +77,7 @@ def get_llm():
         )
     elif config["provider"] == "openai":
         logging.info("Using OpenAI model")
-        return ChatOpenAI(
-            model=config["model_name"], temperature=config["temperature"]
-        )
+        return ChatOpenAI(model=config["model_name"], temperature=config["temperature"])
     elif config["provider"] == "google-genai":
         logging.info("Using Google GenAI model")
         return ChatGoogleGenerativeAI(
