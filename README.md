@@ -27,7 +27,7 @@ This project uses Poetry for dependency management. The UI component is built on
 poetry install
 
 # Run the Streamlit app
-poetry run streamlit run ui.py
+poetry run streamlit run visuo_synth/ui.py
 ```
 
 Make sure your `.env` file contains your Anthropic API key:
