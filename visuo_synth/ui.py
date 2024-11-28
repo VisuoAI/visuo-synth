@@ -365,7 +365,7 @@ def configure_llm():
         if provider == "anthropic":
             models = ["claude-3-5-haiku-20241022", "claude-3-opus-20240229"]
         elif provider == "openai":
-            models = ["gpt-4o", "gpt-3.5-turbo"]
+            models = ["gpt-4o-mini", "gpt-4o"]
         else:  # google genai
             models = ["gemini-1.5-pro-002", "gemini-1.5-flash"]
 
