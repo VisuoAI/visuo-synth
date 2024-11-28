@@ -12,6 +12,7 @@ from visuo_synth import (
     Table,
     DatabaseSchema,
     LangChainDataGenerationStrategy,
+    HybridDataGenerationStrategy,
     SyntheticDataGenerator,
 )
 
@@ -28,8 +29,8 @@ def initialize_session_state():
         st.session_state.schema_json = None
     if "llm_config" not in st.session_state:
         st.session_state.llm_config = {
-            "provider": "google-genai",
-            "model_name": "gemini-1.5-flash",
+            "provider": "anthropic",
+            "model_name": "claude-3-5-haiku-20241022",
             "temperature": 0.7,
         }
 
@@ -53,6 +54,7 @@ def parse_ai_schema(schema_dict):
                         else None
                     ),
                     unique=col_def.get("unique", False),
+                    needs_llm=col_def.get("needs_llm", False),
                 )
                 columns.append(column)
 
@@ -93,6 +95,23 @@ def generate_schema_from_description(description):
 
     prompt = f"""Based on the following description, create a database schema in JSON format.
     Include appropriate data types, primary keys, foreign keys, and constraints.
+    Also specify whether each field needs LLM generation based on these criteria:
+
+    Use LLM (needs_llm = true) for fields that need:
+    1. Realistic human-readable content (e.g., names, descriptions)
+    2. Context-aware values
+    3. Domain-specific knowledge
+    4. Natural language
+    5. Semantic relationships
+
+    Use random generation (needs_llm = false) for:
+    1. IDs and codes
+    2. Simple numeric values
+    3. Dates and timestamps
+    4. Boolean flags
+    5. Foreign keys
+    6. Simple categorical values
+
     Use only these data types: INTEGER, FLOAT, STRING, DATE, TIMESTAMP, BOOLEAN
     
     Description: {description}
@@ -107,7 +126,8 @@ def generate_schema_from_description(description):
                     "nullable": boolean,
                     "primary_key": boolean,
                     "foreign_key": ["referenced_table", "referenced_column"] or null,
-                    "unique": boolean
+                    "unique": boolean,
+                    "needs_llm": boolean
                 }}
             ]
         }}
@@ -157,7 +177,9 @@ def display_schema_editor():
             cols_to_remove = []
 
             for col in table.columns:
-                col1, col2, col3, col4, col5, col6 = st.columns([2, 2, 1, 1, 1, 1])
+                col1, col2, col3, col4, col5, col6, col7 = st.columns(
+                    [2, 2, 1, 1, 1, 1, 1]
+                )
 
                 with col1:
                     new_name = st.text_input(
@@ -205,6 +227,17 @@ def display_schema_editor():
                         modified = True
 
                 with col6:
+                    new_needs_llm = st.checkbox(
+                        "Use LLM",
+                        col.needs_llm,
+                        key=f"col_llm_{table.name}_{col.name}",
+                        help="Check if this field needs LLM for realistic data generation",
+                    )
+                    if new_needs_llm != col.needs_llm:
+                        col.needs_llm = new_needs_llm
+                        modified = True
+
+                with col7:
                     if st.button("Delete", key=f"del_col_{table.name}_{col.name}"):
                         cols_to_remove.append(col)
                         modified = True
@@ -215,7 +248,9 @@ def display_schema_editor():
 
             # Add new column button
             if st.button(f"Add Column to {table.name}", key=f"add_col_{table.name}"):
-                table.columns.append(Column("new_column", DataType.STRING))
+                table.columns.append(
+                    Column("new_column", DataType.STRING, needs_llm=False)
+                )
                 modified = True
 
     # Remove marked tables
@@ -225,7 +260,10 @@ def display_schema_editor():
     # Add new table button
     if st.button("Add New Table"):
         st.session_state.tables.append(
-            Table("new_table", [Column("id", DataType.INTEGER, primary_key=True)])
+            Table(
+                "new_table",
+                [Column("id", DataType.INTEGER, primary_key=True, needs_llm=False)],
+            )
         )
         modified = True
 
@@ -257,11 +295,26 @@ def generate_synthetic_data():
             key=f"volume_{table.name}",
         )
 
+    # Add strategy selection
+    strategy_type = st.selectbox(
+        "Generation Strategy",
+        ["Hybrid (Smart)", "LLM Only"],
+        index=0,
+        help="Hybrid strategy uses LLM only for complex fields like names and descriptions, "
+        "while using faster random generation for simple fields like IDs and dates.",
+    )
+
     if st.button("Generate Data"):
         try:
             with st.spinner("Generating synthetic data..."):
                 llm = get_llm()
-                strategy = LangChainDataGenerationStrategy(llm)
+
+                # Choose strategy based on selection
+                if strategy_type == "Hybrid (Smart)":
+                    strategy = HybridDataGenerationStrategy(llm)
+                else:
+                    strategy = LangChainDataGenerationStrategy(llm)
+
                 generator = SyntheticDataGenerator(
                     st.session_state.current_schema, strategy
                 )

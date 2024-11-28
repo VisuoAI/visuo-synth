@@ -31,6 +31,7 @@ class Column:
     primary_key: bool = False
     foreign_key: Optional[tuple[str, str]] = None  # (table_name, column_name)
     unique: bool = False
+    needs_llm: bool = False  # Whether this column needs LLM for generation
 
 
 @dataclass
@@ -252,11 +253,216 @@ The value should be in this format: {data_type_examples[column.data_type]}
             )
 
 
+class HybridDataGenerationStrategy(DataGenerationStrategy):
+    def __init__(self, llm: BaseChatModel):
+        self.llm = llm
+        self.llm_fields: Dict[str, List[str]] = {}
+        self.value_cache: Dict[str, Dict[str, Any]] = {}
+        self.unique_values: Dict[str, Dict[str, set]] = {}
+
+    def initialize(self, schema: DatabaseSchema):
+        """Initialize the strategy with the given schema."""
+        self.schema = schema
+        # Build llm_fields from schema's needs_llm flags
+        self.llm_fields = {
+            table_name: [col.name for col in table.columns if col.needs_llm]
+            for table_name, table in schema.tables.items()
+        }
+        # Initialize caches
+        self.value_cache = {}
+        self.unique_values = {}
+        for table_name, table in schema.tables.items():
+            self.value_cache[table_name] = {}
+            self.unique_values[table_name] = {}
+            for col in table.columns:
+                if col.unique:
+                    self.unique_values[table_name][col.name] = set()
+
+    def generate_value(
+        self, table_name: str, column: Column, row_context: Dict[str, Any] = None
+    ) -> Any:
+        """Generate a value for the given column."""
+        # Use cached value if available
+        cache_key = f"{table_name}.{column.name}"
+        if cache_key in self.value_cache:
+            return self.value_cache[cache_key]
+
+        if column.needs_llm:
+            value = self._generate_llm_value(table_name, column, row_context)
+        else:
+            value = self._generate_random_value(table_name, column)
+
+        # Cache if needed
+        if cache_key in self.value_cache:
+            self.value_cache[cache_key] = value
+
+        return value
+
+    def _generate_llm_value(
+        self, table_name: str, column: Column, row_context: Dict[str, Any] = None
+    ) -> Any:
+        """Generate a value using the LLM for complex cases."""
+        prompt = self._create_prompt(table_name, column, row_context)
+
+        # Check cache first
+        cache_key = (column.name, str(row_context))
+        if cache_key in self.value_cache:
+            return self.value_cache[cache_key]
+
+        # Generate using LLM
+        response = self.llm.invoke([HumanMessage(content=prompt)])
+
+        # Parse and validate response
+        value = self._parse_response(response.content, column.data_type)
+
+        # Cache result
+        self.value_cache[cache_key] = value
+        return value
+
+    def _create_prompt(
+        self, table_name: str, column: Column, row_context: Dict[str, Any] = None
+    ) -> str:
+        """Create a prompt for LLM generation."""
+        # Basic type guidance
+        type_guidance = {
+            DataType.INTEGER: "Generate a contextually appropriate whole number.",
+            DataType.FLOAT: "Generate a contextually appropriate decimal number.",
+            DataType.STRING: "Generate a contextually appropriate text value.",
+            DataType.DATE: "Generate a realistic date in YYYY-MM-DD format.",
+            DataType.TIMESTAMP: "Generate a realistic timestamp in YYYY-MM-DD HH:MM:SS format.",
+            DataType.BOOLEAN: "Generate either true or false based on context.",
+        }
+
+        prompt = f"""Generate exactly one value for a column with these details:
+- Name: {column.name}
+- Type: {column.data_type.value}
+- Table: {table_name}
+
+{type_guidance[column.data_type]}
+
+Consider:
+1. The column name and its semantic meaning
+2. The table context and its purpose
+3. Typical real-world values for this kind of data
+4. Reasonable value ranges and formats
+5. Business logic and domain constraints
+
+Respond with ONLY the generated value, no explanation or additional text.
+"""
+
+        # Add uniqueness context if needed
+        if column.primary_key or column.unique:
+            existing = row_context.get("generated_values", {}).get(column.name, [])
+            prompt += f"\nThis value must be unique. Already used values: {existing}"
+
+        return prompt
+
+    def _parse_response(self, response: str, data_type: DataType) -> Any:
+        """Parse and validate LLM response based on data type."""
+        if not response or not isinstance(response, str):
+            raise ValueError("Invalid or empty response from LLM")
+
+        response = response.strip()
+
+        try:
+            if data_type == DataType.INTEGER:
+                cleaned = response.replace(",", "").replace("$", "").strip()
+                return int(float(cleaned))
+
+            elif data_type == DataType.FLOAT:
+                cleaned = response.replace(",", "").replace("$", "").strip()
+                return float(cleaned)
+
+            elif data_type == DataType.BOOLEAN:
+                lower_resp = response.lower()
+                if lower_resp in ["true", "1", "yes", "y"]:
+                    return True
+                elif lower_resp in ["false", "0", "no", "n"]:
+                    return False
+                else:
+                    raise ValueError(f"Invalid boolean value: {response}")
+
+            elif data_type == DataType.DATE:
+                for fmt in ["%Y-%m-%d", "%Y/%m/%d", "%d-%m-%Y", "%d/%m/%Y"]:
+                    try:
+                        return datetime.strptime(response, fmt).date()
+                    except ValueError:
+                        continue
+                raise ValueError(f"Unrecognized date format: {response}")
+
+            elif data_type == DataType.TIMESTAMP:
+                for fmt in [
+                    "%Y-%m-%d %H:%M:%S",
+                    "%Y-%m-%d %H:%M:%S.%f",
+                    "%Y-%m-%dT%H:%M:%S",
+                ]:
+                    try:
+                        return datetime.strptime(response, fmt)
+                    except ValueError:
+                        continue
+                raise ValueError(f"Unrecognized timestamp format: {response}")
+
+            else:  # STRING
+                cleaned = response.strip()
+                if not cleaned:
+                    raise ValueError("Empty string after cleaning")
+                return cleaned
+
+        except Exception as e:
+            raise ValueError(
+                f"Failed to parse '{response}' as {data_type.value}: {str(e)}\n"
+                f"Please ensure the response matches the requested format."
+            )
+
+    def _generate_random_value(self, table_name: str, column: Column) -> Any:
+        """Generate a random value for simple cases."""
+        import random
+        from datetime import datetime, timedelta
+
+        # Handle foreign keys - we'll let the SyntheticDataGenerator handle this
+        if column.foreign_key:
+            return None  # Foreign keys are handled by SyntheticDataGenerator
+
+        if column.data_type == DataType.INTEGER:
+            return random.randint(1, 1000)
+
+        elif column.data_type == DataType.FLOAT:
+            return round(random.uniform(1.0, 1000.0), 2)
+
+        elif column.data_type == DataType.BOOLEAN:
+            return random.choice([True, False])
+
+        elif column.data_type == DataType.DATE:
+            # Generate a random date within the last year
+            days = random.randint(0, 365)
+            return (datetime.now() - timedelta(days=days)).date()
+
+        elif column.data_type == DataType.TIMESTAMP:
+            # Generate a random timestamp within the last year
+            days = random.randint(0, 365)
+            hours = random.randint(0, 23)
+            minutes = random.randint(0, 59)
+            seconds = random.randint(0, 59)
+            return datetime.now() - timedelta(
+                days=days, hours=hours, minutes=minutes, seconds=seconds
+            )
+
+        else:  # STRING
+            if column.unique:
+                return f"Value_{random.randint(1000, 999999)}"
+            else:
+                return f"Value_{random.randint(1000, 9999)}"
+
+
 class SyntheticDataGenerator:
     def __init__(self, schema: DatabaseSchema, strategy: DataGenerationStrategy):
         self.schema = schema
         self.strategy = strategy
         self.generated_data = {}
+
+        # If using hybrid strategy, analyze schema first
+        if isinstance(strategy, HybridDataGenerationStrategy):
+            strategy.initialize(schema)
 
     def generate(self, volumes: Dict[str, int]) -> Dict[str, List[Dict[str, Any]]]:
         """Generate synthetic data for all tables in the schema."""
@@ -411,7 +617,9 @@ class SyntheticDataGenerator:
 
                         for attempt in range(max_attempts):
                             try:
-                                value = self.strategy.generate_value(column, context)
+                                value = self.strategy.generate_value(
+                                    table_name, column, context
+                                )
 
                                 # Validate non-null constraint
                                 if not column.nullable and value is None:
