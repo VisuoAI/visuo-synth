@@ -9,6 +9,7 @@ from typing import Dict, List, Any, Optional, Union
 from dotenv import load_dotenv
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
+from names_generator import generate_name
 
 load_dotenv()
 # from langchain_openai import ChatOpenAI
@@ -21,6 +22,9 @@ class DataType(Enum):
     DATE = "DATE"
     TIMESTAMP = "TIMESTAMP"
     BOOLEAN = "BOOLEAN"
+    FULLNAME = "FULLNAME"
+    FIRSTNAME = "FIRSTNAME"
+    LASTNAME = "LASTNAME"
 
 
 @dataclass
@@ -149,6 +153,9 @@ class LangChainDataGenerationStrategy(DataGenerationStrategy):
             DataType.DATE: "a date in YYYY-MM-DD format",
             DataType.TIMESTAMP: "a timestamp in YYYY-MM-DD HH:MM:SS format",
             DataType.BOOLEAN: "true or false",
+            DataType.FULLNAME: "a full name",
+            DataType.FIRSTNAME: "a first name",
+            DataType.LASTNAME: "a last name",
         }
 
         data_type_examples = {
@@ -158,6 +165,9 @@ class LangChainDataGenerationStrategy(DataGenerationStrategy):
             DataType.DATE: "2024-01-15",
             DataType.TIMESTAMP: "2024-01-15 14:30:00",
             DataType.BOOLEAN: "true",
+            DataType.FULLNAME: "John Doe, Jane Smith",
+            DataType.FIRSTNAME: "John, Jane, Michael",
+            DataType.LASTNAME: "Doe, Smith, Johnson",
         }
 
         prompt = f"""Generate exactly one {data_type_hints[column.data_type]} for a column named '{column.name}'.
@@ -238,6 +248,27 @@ The value should be in this format: {data_type_examples[column.data_type]}
                     except ValueError:
                         continue
                 raise ValueError(f"Unrecognized timestamp format: {response}")
+
+            elif data_type == DataType.FULLNAME:
+                # Basic string validation and cleaning
+                cleaned = response.strip()
+                if not cleaned:
+                    raise ValueError("Empty string after cleaning")
+                return cleaned
+
+            elif data_type == DataType.FIRSTNAME:
+                # Basic string validation and cleaning
+                cleaned = response.strip()
+                if not cleaned:
+                    raise ValueError("Empty string after cleaning")
+                return cleaned
+
+            elif data_type == DataType.LASTNAME:
+                # Basic string validation and cleaning
+                cleaned = response.strip()
+                if not cleaned:
+                    raise ValueError("Empty string after cleaning")
+                return cleaned
 
             else:  # STRING
                 # Basic string validation and cleaning
@@ -331,6 +362,9 @@ class HybridDataGenerationStrategy(DataGenerationStrategy):
             DataType.DATE: "Generate a realistic date in YYYY-MM-DD format.",
             DataType.TIMESTAMP: "Generate a realistic timestamp in YYYY-MM-DD HH:MM:SS format.",
             DataType.BOOLEAN: "Generate either true or false based on context.",
+            DataType.FULLNAME: "Generate a full name.",
+            DataType.FIRSTNAME: "Generate a first name.",
+            DataType.LASTNAME: "Generate a last name.",
         }
 
         # Special guidance for email fields
@@ -408,6 +442,24 @@ Respond with ONLY the generated value, no explanation or additional text.
                         continue
                 raise ValueError(f"Unrecognized timestamp format: {response}")
 
+            elif data_type == DataType.FULLNAME:
+                cleaned = response.strip()
+                if not cleaned:
+                    raise ValueError("Empty string after cleaning")
+                return cleaned
+
+            elif data_type == DataType.FIRSTNAME:
+                cleaned = response.strip()
+                if not cleaned:
+                    raise ValueError("Empty string after cleaning")
+                return cleaned
+
+            elif data_type == DataType.LASTNAME:
+                cleaned = response.strip()
+                if not cleaned:
+                    raise ValueError("Empty string after cleaning")
+                return cleaned
+
             else:  # STRING
                 cleaned = response.strip()
                 if not cleaned:
@@ -454,9 +506,22 @@ Respond with ONLY the generated value, no explanation or additional text.
                 days=days, hours=hours, minutes=minutes, seconds=seconds
             )
 
+        elif column.data_type in [
+            DataType.FULLNAME,
+            DataType.FIRSTNAME,
+            DataType.LASTNAME,
+        ]:
+            name = generate_name(style="capital")  # e.g. "Hardcore Thompson"
+            if column.data_type == DataType.FIRSTNAME:
+                return name.split()[0]  # First word
+            elif column.data_type == DataType.LASTNAME:
+                return name.split()[1]  # Second word
+            else:  # FULLNAME
+                return name
+
         else:  # STRING
             # Special handling for email fields
-            if "email" in column.name.lower():
+            if column.data_type == DataType.STRING and "email" in column.name.lower():
                 # Generate username part
                 username_length = random.randint(6, 12)
                 username = "".join(

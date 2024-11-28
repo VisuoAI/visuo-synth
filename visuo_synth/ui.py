@@ -111,8 +111,23 @@ def generate_schema_from_description(description):
     4. Boolean flags
     5. Foreign keys
     6. Simple categorical values
+    7. Names (use appropriate name data types instead)
 
-    Use only these data types: INTEGER, FLOAT, STRING, DATE, TIMESTAMP, BOOLEAN
+    Available data types:
+    - INTEGER: For numeric whole numbers
+    - FLOAT: For decimal numbers
+    - STRING: For general text
+    - DATE: For dates in YYYY-MM-DD format
+    - TIMESTAMP: For date-time values
+    - BOOLEAN: For true/false values
+    - FULLNAME: For full names (first + last, no LLM needed)
+    - FIRSTNAME: For first names only (no LLM needed)
+    - LASTNAME: For last names only (no LLM needed)
+
+    Special Instructions:
+    1. For name-related columns (e.g., full_name, first_name, last_name), use the specific name data types (FULLNAME, FIRSTNAME, LASTNAME) instead of STRING
+    2. When using name data types, always set needs_llm = false as these are handled by specialized generation
+    3. Use STRING + needs_llm = true only for fields that require complex, contextual generation
     
     Description: {description}
     
