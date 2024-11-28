@@ -15,6 +15,7 @@ from visuo_synth import (
     HybridDataGenerationStrategy,
     SyntheticDataGenerator,
 )
+from local_llm import QwenCoder
 
 json_parser = JsonOutputParser()
 
@@ -77,6 +78,9 @@ def get_llm():
             temperature=config["temperature"],
             max_tokens=2000,
         )
+    elif config["provider"] == "local":
+        logging.info("Using local model")
+        return QwenCoder()
     elif config["provider"] == "openai":
         logging.info("Using OpenAI model")
         return ChatOpenAI(model=config["model_name"], temperature=config["temperature"])
@@ -356,8 +360,8 @@ def configure_llm():
 
         provider = st.selectbox(
             "Provider",
-            ["anthropic", "openai", "google-genai"],
-            index=["anthropic", "openai", "google-genai"].index(
+            ["local", "anthropic", "openai", "google-genai"],
+            index=["local", "anthropic", "openai", "google-genai"].index(
                 st.session_state.llm_config["provider"]
             ),
         )
