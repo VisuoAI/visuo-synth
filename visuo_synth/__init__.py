@@ -333,12 +333,18 @@ class HybridDataGenerationStrategy(DataGenerationStrategy):
             DataType.BOOLEAN: "Generate either true or false based on context.",
         }
 
+        # Special guidance for email fields
+        if column.data_type == DataType.STRING and "email" in column.name.lower():
+            guidance = "Generate a valid email address in the format username@domain.com. Use common email domains."
+        else:
+            guidance = type_guidance[column.data_type]
+
         prompt = f"""Generate exactly one value for a column with these details:
 - Name: {column.name}
 - Type: {column.data_type.value}
 - Table: {table_name}
 
-{type_guidance[column.data_type]}
+{guidance}
 
 Consider:
 1. The column name and its semantic meaning
@@ -418,6 +424,7 @@ Respond with ONLY the generated value, no explanation or additional text.
         """Generate a random value for simple cases."""
         import random
         from datetime import datetime, timedelta
+        import string
 
         # Handle foreign keys - we'll let the SyntheticDataGenerator handle this
         if column.foreign_key:
@@ -448,6 +455,30 @@ Respond with ONLY the generated value, no explanation or additional text.
             )
 
         else:  # STRING
+            # Special handling for email fields
+            if "email" in column.name.lower():
+                # Generate username part
+                username_length = random.randint(6, 12)
+                username = "".join(
+                    random.choices(
+                        string.ascii_lowercase + string.digits, k=username_length
+                    )
+                )
+
+                # Common email domains
+                domains = [
+                    "gmail.com",
+                    "yahoo.com",
+                    "hotmail.com",
+                    "outlook.com",
+                    "company.com",
+                    "example.com",
+                    "business.com",
+                ]
+                domain = random.choice(domains)
+                return f"{username}@{domain}"
+
+            # Handle other string fields
             if column.unique:
                 return f"Value_{random.randint(1000, 999999)}"
             else:
